@@ -1,0 +1,146 @@
+---
+output:
+  html_document
+bibliography: ref.bib
+---
+
+# Cluster-based minimum spanning tree
+
+```{r setup, echo=FALSE, results="asis"}
+library(rebook)
+chapterPreamble()
+```
+
+## Overview
+
+The `r Biocpkg("TSCAN")` algorithm [@ji2016tscan] uses a simple yet effective approach to trajectory reconstruction.
+It uses the clustering to summarize the data into a smaller set of discrete units, computes cluster centroids by averaging the coordinates of its member cells, and then forms the minimum spanning tree (MST) across those centroids.
+The MST is simply an undirected acyclic graph that passes through each centroid exactly once with the lowest distance, and is thus the most parsimonious structure that captures the transitions between clusters.
+We will demonstrate this approach using the haematopoietic stem cell (HSC) dataset from @nestorowa2016singlecell.
+
+```{r, results='asis', echo=FALSE}
+extractFromPackage("nestorowa-hsc.Rmd", package="OSCA.workflows",
+    chunk="clustering", objects="sce.nest")
+```
+
+```{r}
+sce.nest
+```
+
+## Constructing the MST
+
+The `quickPseudotime()` wrapper function performs the entire suite of MST-based calculations.
+We compute cluster centroids in the low-dimensional PC space to take advantage of data compaction and denoising (`r link("dimensionality-reduction", "OSCA.basic")`).
+We then create the MST from the cluster centroids with `createClusterMST()`, using Euclidean distances for the edge weights. 
+The function returns the MST itself as an `r CRANpkg("igraph")` object:
+
+```{r}
+library(TSCAN)
+pseudo.all <- quickPseudotime(sce.nest, use.dimred="PCA")
+pseudo.all$mst
+```
+
+We can visualize this by drawing the corresponding lines between the centroids in the low-dimensional space of choice - here, a $t$-SNE plot (Figure \@ref(fig:tscan-nest-tsne)).
+This allows us to identify interesting clusters at, e.g., bifurcations or endpoints.
+Note that the MST in `mst` was generated from distances in the PC space and is merely being visualized here in the $t$-SNE space,
+for the same reasons as discussed in `r link("visualization-interpretation", "OSCA.basic")`.
+This may occasionally result in some visually unappealing plots if the original ordering of clusters in the PC space is not preserved in the $t$-SNE space.
+
+```{r tscan-nest-tsne, fig.cap="$t$-SNE plot of the Nestorowa HSC dataset, where each point is a cell and is colored according to its cluster assignment. The MST obtained using a _TSCAN_-like algorithm is overlaid on top."}
+library(scater)
+line.data <- pseudo.all$connected$TSNE
+plotTSNE(sce.nest, colour_by="label") + 
+    geom_line(data=line.data, mapping=aes(x=dim1, y=dim2, group=edge))
+```
+
+We obtain the pseudotime ordering by projecting the cells onto the MST. 
+More specifically, we move each cell onto the closest edge of the MST, as determined by distance in the low-dimensional PC space;
+the pseudotime is then calculated as the distance along the MST to this new position from a "root node" with `orderCells()`.
+For a branched trajectory, we report multiple paths from the root to each of the other MST endpoints.
+For our purposes, we will arbitrarily pick one of the endpoint nodes as the root,
+though a more careful choice based on the biological annotation of each node may yield more relevant orderings
+(e.g., picking a node corresponding to a more pluripotent state) - see Chapter \@ref(finding-the-root).
+
+The ordering itself is held in a `PseudotimeOrdering` object, where each row is a cell and each column is a path through the MST.
+Each column contains one pseudotime ordering and corresponds to one path from the root node to one of the terminal nodes - 
+the name of the terminal node that defines this path is recorded in the column names of the `PseudotimeOrdering` object.
+Some cells may be shared across multiple paths, in which case they will have the same pseudotime value in each of those paths.
+
+```{r}
+pseudo.all$ordering
+head(pathStat(pseudo.all$ordering))
+```
+
+We can then examine the pseudotime ordering on our desired visualization as shown in Figure \@ref(fig:tscan-nest-pseudo).
+
+```{r tscan-nest-pseudo, fig.cap="$t$-SNE plot of the Nestorowa HSC dataset, where each point is a cell and is colored according to its pseudotime value. The MST obtained using _TSCAN_ is overlaid on top."}
+common.pseudo <- averagePseudotime(pseudo.all$ordering)
+plotTSNE(sce.nest, colour_by=I(common.pseudo), 
+        text_by="label", text_colour="red") +
+    geom_line(data=line.data, mapping=aes(x=dim1, y=dim2, group=edge))
+```
+
+```{r, echo=FALSE, results="hide"}
+stopifnot(ncol(pseudo.all$ordering) > 1L)
+```
+
+## Including an outgroup
+
+The MST can be constructed with an "outgroup" to avoid connecting unrelated populations in the dataset.
+Based on the OMEGA cluster concept from @street2018slingshot,
+the outgroup is an artificial cluster that is equidistant from all real clusters at some threshold value.
+If the original MST _sans_ the outgroup contains an edge that is longer than twice the threshold,
+the addition of the outgroup will cause the MST to instead be routed through the outgroup.
+We can subsequently break up the MST into subcomponents (i.e., a minimum spanning forest) by removing the outgroup.
+We set `outgroup=TRUE` to introduce an outgroup with an automatically determined threshold distance,
+which breaks up our previous MST into two components (Figure \@ref(fig:tscan-nest-omega)).
+
+```{r tscan-nest-omega, fig.cap="Minimum spanning tree of the Nestorowa clusters after introducing an outgroup."}
+pseudo.og <- quickPseudotime(sce.nest, use.dimred="PCA", outgroup=TRUE)
+set.seed(10101)
+plot(pseudo.og$mst)
+```
+
+```{r, echo=FALSE}
+stopifnot(igraph::components(pseudo.og$mst)$no == 2)
+```
+
+## Using other distance metrics 
+
+Another option is to construct the MST based on distances between mutual nearest neighbor (MNN) pairs between clusters (`r link("mnn-correction", "OSCA.multisample")`).
+This exploits the fact that MNN pairs occur at the boundaries of two clusters, with short distances between paired cells meaning that the clusters are "touching".
+In this mode, the MST focuses on the connectivity between clusters, which can be different from the shortest distance between centroids (Figure \@ref(fig:tscan-nest-mnn)).
+Consider, for example, a pair of elongated clusters that are immediately adjacent to each other.
+A large distance between their centroids precludes the formation of the obvious edge with the default MST construction;
+in contrast, the MNN distance is very low and encourages the MST to create a connection between the two clusters.
+
+```{r tscan-nest-mnn, fig.cap="$t$-SNE plot of the Nestorowa HSC dataset, where each point is a cell and is colored according to its pseudotime value. The MST obtained using _TSCAN_ with MNN distances is overlaid on top."}
+pseudo.mnn <- quickPseudotime(sce.nest, use.dimred="PCA", with.mnn=TRUE)
+mnn.pseudo <- averagePseudotime(pseudo.mnn$ordering)
+plotTSNE(sce.nest, colour_by=I(mnn.pseudo), text_by="label", text_colour="red") +
+    geom_line(data=pseudo.mnn$connected$TSNE, mapping=aes(x=dim1, y=dim2, group=edge))
+```
+
+```{r, echo=FALSE}
+stopifnot(!isTRUE(all.equal(pseudo.mnn$ordering, pseudo.all$ordering)))
+```
+
+## Further comments
+
+The `r Biocpkg("TSCAN")` approach derives several advantages from using clusters to form the MST.
+The most obvious is that of computational speed as calculations are performed over clusters rather than cells.
+The relative coarseness of clusters protects against the per-cell noise that would otherwise reduce the stability of the MST.
+The interpretation of the MST is also straightforward as it uses the same clusters as the rest of the analysis,
+allowing us to recycle previous knowledge about the biological annotations assigned to each cluster.
+
+However, the reliance on clustering is a double-edged sword.
+If the clusters are not sufficiently granular, 
+it is possible for `r Biocpkg("TSCAN")` to overlook variation that occurs inside a single cluster.
+The MST is obliged to pass through each cluster exactly once, which can lead to excessively circuitous paths in overclustered datasets as well as the formation of irrelevant paths between distinct cell subpopulations if the outgroup threshold is too high.
+The MST also fails to handle more complex events such as "bubbles" (i.e., a bifurcation and then a merging) or cycles.
+
+## Session Info {-}
+
+```{r sessionInfo, echo=FALSE, results='asis'}
+prettySessionInfo()
+```
