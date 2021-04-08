@@ -13,6 +13,12 @@ chapterPreamble()
 
 ## Overview
 
+Many biological processes manifest as a continuum of cellular states.
+The most obvious example is that of differentiation into increasingly specialized cell subtypes, but we might also consider phenomena like the cell cycle or immune cell activation that are accompanied by gradual changes in the cell's transcriptome.
+We characterize these processes by identifying a "trajectory" from the single-cell expression data, i.e., a path through the high-dimensional expression space that traverses the associated cellular states.
+In the simplest case, a trajectory will be a single path from one point to another, but we can also observe more complex trajectories that branch to multiple endpoints.
+This complements our existing analyses by summarizing the relationships between clusters to enable interpretation of the data beyond cell type/state identity.
+
 The `r Biocpkg("TSCAN")` algorithm [@ji2016tscan] uses a simple yet effective approach to trajectory reconstruction.
 It uses the clustering to summarize the data into a smaller set of discrete units, computes cluster centroids by averaging the coordinates of its member cells, and then forms the minimum spanning tree (MST) across those centroids.
 The MST is simply an undirected acyclic graph that passes through each centroid exactly once with the lowest distance, and is thus the most parsimonious structure that captures the transitions between clusters.
@@ -52,6 +58,14 @@ line.data <- pseudo.all$connected$TSNE
 plotTSNE(sce.nest, colour_by="label") + 
     geom_line(data=line.data, mapping=aes(x=dim1, y=dim2, group=edge))
 ```
+
+## Computing the pseudotime
+
+The "pseudotime" is defined as the positioning of cells along the trajectory that quantifies the relative activity or progression of the underlying biological process.
+Literally: the pseudotime value for each cell is just a number, where cells with larger values are consider to be "after" their counterparts with smaller values.
+For example, if we were studying a differentiation trajectory, larger pseudotime values might correspond to cells that are more differentiated.
+This metric allows us to tackle questions related to the global population structure in a quantitative manner.
+One common application is to fit models to gene expression against the pseudotime to identify the genes responsible for generating the trajectory in the first place, especially around interesting branch events.
 
 We obtain the pseudotime ordering by projecting the cells onto the MST. 
 More specifically, we move each cell onto the closest edge of the MST, as determined by distance in the low-dimensional PC space;
