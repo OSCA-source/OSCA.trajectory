@@ -1,0 +1,10 @@
+book_filename: "OSCA.trajectory"
+pagetitle: "Single-Cell Trajectory Analysis with Bioconductor"
+delete_merged_file: true
+new_session: true
+language:
+  ui:
+    chapter_name: "Chapter "
+output_dir: "docs"
+rmd_files: ["index.Rmd",
+]

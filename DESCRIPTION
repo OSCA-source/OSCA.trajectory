@@ -1,0 +1,55 @@
+Package: OSCA.trajectory
+Title: Single-Cell Trajectory Analysis 
+Version: 0.99.0
+Date: 2021-04-05
+Authors@R: c( 
+        person('Aaron', 'Lun', role = c('aut', 'cre'), email="infinite.monkeys.with.keyboards@gmail.com")
+    )
+Description: 
+    Deploys trajectory analysis chapters for the "Orchestrating Single Cell Analysis with Bioconductor" book.
+    This describes trajectory reconstruction, detection of differentially expressed genes along lineages, 
+    visualization of , determination of directionality and RNA velocity analyses. It is intended for users who 
+    are already familiar with the basic concepts of scRNA-seq analyses in R, possibly after reading other books in this series.
+Depends: AnnotationHub,
+    AUCell,
+    BiocFileCache,
+    BiocSingular,
+    bluster,
+    celldex,
+    cluster,
+    clustree,
+    dendextend,
+    dynamicTreeCut,
+    ggbeeswarm,
+    GO.db,
+    gridExtra,
+    GSEABase,
+    igraph,
+    limma,
+    org.Mm.eg.db,
+    pheatmap,
+    rebook,
+    rmarkdown,
+    RMTstat,
+    robustbase,
+    Rtsne,
+    scater,
+    scran,
+    scRNAseq,
+    scuttle,
+    SingleR,
+    statmod,
+    viridis
+Imports: 
+    OSCA.workflows
+Suggests: 
+    rmarkdown,
+    knitr,
+    OSCA.advanced
+VignetteBuilder: knitr
+License: CC BY 4.0
+URL: https://github.com/OSCA-source/OSCA.trajectory
+biocViews: 
+    ImmunoOncologyWorkflow,
+    Workflow, 
+    SingleCellWorkflow
