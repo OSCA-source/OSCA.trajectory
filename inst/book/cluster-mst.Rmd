@@ -37,7 +37,7 @@ sce.nest
 
 The `quickPseudotime()` wrapper function performs the entire suite of MST-based calculations.
 We compute cluster centroids in the low-dimensional PC space to take advantage of data compaction and denoising (`r link("dimensionality-reduction", "OSCA.basic")`).
-We then create the MST from the cluster centroids with `createClusterMST()`, using Euclidean distances for the edge weights. 
+We then create the MST from the cluster centroids with `createClusterMST()`, using Euclidean distances for the edge weights.
 The function returns the MST itself as an `r CRANpkg("igraph")` object:
 
 ```{r}
@@ -58,6 +58,13 @@ line.data <- pseudo.all$connected$TSNE
 plotTSNE(sce.nest, colour_by="label") + 
     geom_line(data=line.data, mapping=aes(x=dim1, y=dim2, group=edge))
 ```
+
+The key point here is that clusters are used as the nodes in the MST.
+By taking the average across many cells in a cluster, we achieve some robustness to the typically high levels of noise in single-cell datasets.
+In contrast, MSTs constructed from individual cells tend to be less stable [@street2018slingshot] as they are directly exposed to cell-specific variation.
+The interpretation of our cluster-based MST is also straightforward as it uses the same clusters as the rest of the analysis,
+allowing us to recycle previous knowledge about the biological annotations assigned to each cluster.
+Finally, the MST is very fast to compute as calculations are performed over clusters rather than cells.
 
 ## Computing the pseudotime
 
@@ -97,6 +104,10 @@ plotTSNE(sce.nest, colour_by=I(common.pseudo),
 ```{r, echo=FALSE, results="hide"}
 stopifnot(ncol(pseudo.all$ordering) > 1L)
 ```
+
+One unfortunate aspect of the projection is that many cells may receive the same pseudotime value if they map to the exact same point on the MST.
+This effect is most obvious at vertices - for example, the terminal node will be the closest point on the MST for around 50% of the cells in the associated cluster.
+While mostly harmless, these "clumps" of identical pseudotime values reduce the resolution of the ordering and the utility of the pseudotime for downstream analyses.
 
 ## Including an outgroup
 
@@ -141,16 +152,12 @@ stopifnot(!isTRUE(all.equal(pseudo.mnn$ordering, pseudo.all$ordering)))
 
 ## Further comments
 
-The `r Biocpkg("TSCAN")` approach derives several advantages from using clusters to form the MST.
-The most obvious is that of computational speed as calculations are performed over clusters rather than cells.
-The relative coarseness of clusters protects against the per-cell noise that would otherwise reduce the stability of the MST.
-The interpretation of the MST is also straightforward as it uses the same clusters as the rest of the analysis,
-allowing us to recycle previous knowledge about the biological annotations assigned to each cluster.
-
+`r Biocpkg("TSCAN")` derives several advantages from using clusters to form the MST - speed, robustness to noise, and ease of interpretation.
 However, the reliance on clustering is a double-edged sword.
-If the clusters are not sufficiently granular, 
-it is possible for `r Biocpkg("TSCAN")` to overlook variation that occurs inside a single cluster.
-The MST is obliged to pass through each cluster exactly once, which can lead to excessively circuitous paths in overclustered datasets as well as the formation of irrelevant paths between distinct cell subpopulations if the outgroup threshold is too high.
+If the clusters are not sufficiently granular, `r Biocpkg("TSCAN")` may not be able to form obvious trajectories.
+For example, any variation that occurs inside a single cluster will not be captured by the cluster-based MST.
+The MST is also obliged to pass through each cluster exactly once;
+this can lead to excessively circuitous paths in overclustered datasets as well as the formation of irrelevant paths between distinct cell subpopulations if the outgroup threshold is too high.
 The MST also fails to handle more complex events such as "bubbles" (i.e., a bifurcation and then a merging) or cycles.
 
 ## Session Info {-}
