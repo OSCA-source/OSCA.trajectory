@@ -52,15 +52,15 @@ stopifnot(which.max(-colSums(!is.na(tscan.pseudo)))==1)
 target <- "6"
 ```
 
-We use the `testPseudotime()` utility to fit a natural spline to the expression of each gene against one of the pseudotime vectors - in this case, the path ending in cluster `r target`.
+We use `r Biocpkg("TSCAN")`'s `testPseudotime()` function to fit a natural spline to the expression of each gene against one of the pseudotime vectors - in this case, the path ending in cluster `r target`.
 A spline is useful as it allows us to model a range of non-linear relationships in the data.
 We then perform an analysis of variance (ANOVA) to determine if any of the spline coefficients are significantly non-zero,
 i.e., there is some significant trend with respect to pseudotime.
 
 ```{r}
 chosen <- "6"
-pseudo <- testPseudotime(sce.nest, pseudotime=tscan.pseudo[,chosen])
-pseudo$SYMBOL <- rowData(sce.nest)$SYMBOL
+pseudo <- testPseudotime(sce.nest, pseudotime=tscan.pseudo[,chosen], 
+    row.data=rowData(sce.nest)[,"SYMBOL",drop=FALSE])
 sorted <- pseudo[order(pseudo$p.value),]
 sorted
 ```
@@ -172,9 +172,7 @@ A more precise determination of the identity of each pseudotime can be achieved 
 ```{r nest-pseudo-reordered, fig.width=10, fig.height=5, fig.cap=sprintf("_TSCAN_-derived pseudotimes around cluster %s in the Nestorowa HSC dataset. Each point is a cell in this cluster and is colored by its pseudotime value along the path to which it was assigned. The overlaid lines represent the relevant edges of the MST.", starter)}
 # Making a copy and giving the paths more friendly names.
 sub.nest <- sce.nest
-sub.nest$TSCAN.first <- pathStat(tscan.pseudo2)[,"4"]
-sub.nest$TSCAN.second <- pathStat(tscan.pseudo2)[,"6"]
-sub.nest$TSCAN.third <- pathStat(tscan.pseudo2)[,"8"]
+colData(sub.nest) <- cbind(colData(sub.nest), TSCAN=pathStat(tscan.pseudo2))
 
 # Subsetting to the desired cluster containing the branch point.
 keep <- colLabels(sce.nest) == "3"
@@ -186,9 +184,9 @@ line.data.sub <- line.data[grepl("^3--", line.data$edge) | grepl("--3$", line.da
 ggline <- geom_line(data=line.data.sub, mapping=aes(x=dim1, y=dim2, group=edge))
 
 gridExtra::grid.arrange(
-    plotTSNE(sub.nest, colour_by="TSCAN.first") + ggline,
-    plotTSNE(sub.nest, colour_by="TSCAN.second") + ggline,
-    plotTSNE(sub.nest, colour_by="TSCAN.third") + ggline,
+    plotTSNE(sub.nest, colour_by="TSCAN.4") + ggline,
+    plotTSNE(sub.nest, colour_by="TSCAN.6") + ggline,
+    plotTSNE(sub.nest, colour_by="TSCAN.8") + ggline,
     ncol=3
 )
 ```
@@ -197,44 +195,41 @@ We then apply `testPseudotime()` to each path involving our branch point cluster
 Because we are operating over a relatively short pseudotime interval, we do not expect complex trends and so we set `df=1` (i.e., a linear trend) to avoid problems from overfitting. 
 
 ```{r}
-pseudo1 <- testPseudotime(sub.nest, df=1, pseudotime=sub.nest$TSCAN.first)
-pseudo1$SYMBOL <- rowData(sce.nest)$SYMBOL
-pseudo1[order(pseudo1$p.value),]
+multi.test <- testPseudotime(sub.nest, df=1, 
+    pseudotime=colData(sub.nest)[,c("TSCAN.4", "TSCAN.6", "TSCAN.8")],
+    row.data=rowData(sub.nest)[,"SYMBOL",drop=FALSE])
 
-pseudo2 <- testPseudotime(sub.nest, df=1, pseudotime=sub.nest$TSCAN.second)
-pseudo2$SYMBOL <- rowData(sce.nest)$SYMBOL
-pseudo2[order(pseudo2$p.value),]
-
-pseudo3 <- testPseudotime(sub.nest, df=1, pseudotime=sub.nest$TSCAN.third)
-pseudo3$SYMBOL <- rowData(sce.nest)$SYMBOL
-pseudo3[order(pseudo3$p.value),]
+lapply(multi.test, function(x) x[order(x$p.value),])
 ```
 
 We want to find genes that are significant in our path of interest (for this demonstration, the third path reported by `r Biocpkg("TSCAN")`) and are not significant and/or changing in the opposite direction in the other paths.
 We identify non-significant genes as those with raw $p$-values greater than a threshold of 0.05;
 we deliberately omit the multiple testing correction to obtain a more stringent filter for _non_-DE genes.
+We observe upregulation of interesting genes such as _Gata2_ and _Apoe_ along with downregulation of _Flt3_ (Figure \@ref(fig:nest-3-versus)).
 
 ```{r}
-only3 <- pseudo3[which(pseudo3$FDR <= 0.05 & 
-    (pseudo2$p.value >= 0.05 | sign(pseudo1$logFC)!=sign(pseudo3$logFC)) &
-    (pseudo2$p.value >= 0.05 | sign(pseudo2$logFC)!=sign(pseudo3$logFC))),]
-only3[order(only3$p.value),]
-```
+test4 <- multi.test$TSCAN.4
+test6 <- multi.test$TSCAN.6
+test8 <- multi.test$TSCAN.8
 
-We observe upregulation of interesting genes such as _Gata2_ and _Apoe_ along with downregulation of _Flt3_ (Figure \@ref(fig:nest-3-versus)).
-One might speculate that this path leads to a less differentiated HSC state compared to the other directions.
+only8 <- test8[which(test8$FDR <= 0.05 & 
+    (test4$p.value >= 0.05 | sign(test4$logFC)!=sign(test8$logFC)) &
+    (test6$p.value >= 0.05 | sign(test6$logFC)!=sign(test8$logFC))),]
+only8[order(only8$p.value),]
+```
 
 ```{r nest-3-versus, fig.asp=0.5, fig.width=12, fig.cap="$t$-SNE plots of cells in the cluster containing the branch point of the MST in the Nestorowa dataset. Each point is a cell colored by the expression of a gene of interest and the relevant edges of the MST are overlaid on top."}
 gridExtra::grid.arrange(
-    plotTSNE(sub.nest, colour_by="Flt3", swap_rownames="SYMBOL") + ggline,
-    plotTSNE(sub.nest, colour_by="Apoe", swap_rownames="SYMBOL") + ggline,
-    plotTSNE(sub.nest, colour_by="Gata2", swap_rownames="SYMBOL") + ggline,
-    ncol=3
+    plotTSNE(sub.nest, colour_by="Cd53", swap_rownames="SYMBOL") + ggline,
+    plotTSNE(sub.nest, colour_by="Fscn1", swap_rownames="SYMBOL") + ggline,
+    plotTSNE(sub.nest, colour_by="Ncf1", swap_rownames="SYMBOL") + ggline,
+    plotTSNE(sub.nest, colour_by="Cavin1", swap_rownames="SYMBOL") + ggline,
+    ncol=2
 )
 ```
 
 ```{r, echo=FALSE}
-stopifnot(all(c("Flt3", "Gata2", "Apoe") %in% only3$SYMBOL))
+stopifnot(all(c("Cd53", "Fscn1", "Ncf1", "Cavin1") %in% only8$SYMBOL))
 ```
 
 While simple and practical, this comparison strategy is even less statistically defensible than usual.
