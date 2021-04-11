@@ -1,0 +1,54 @@
+---
+output:
+  html_document
+bibliography: ref.bib
+---
+
+# Advanced trajectory-related DE analyses
+
+```{r setup, echo=FALSE, results="asis"}
+library(rebook)
+chapterPreamble()
+```
+
+## Overview
+
+The previous sections have focused on a very simple and efficient - but largely effective - approach to trend fitting.
+Alternatively, we can use more complex strategies that involve various generalizations to the concept of linear models.
+For example, generalized additive models (GAMs) are quite popular for pseudotime-based DE analyses 
+as they are able to handle non-normal noise distributions and a greater diversity of non-linear trends.
+We demonstrate the use of the GAM implementation from the `r Biocpkg("tradeSeq")` package on the Nestorowa dataset below.
+Specifically, we will take a leap of faith and assume that our pseudotime values are comparable across paths of the MST,
+allowing us to use the `patternTest()` function to test for significant differences in expression between paths.
+
+```{r}
+# Getting rid of the NA's; using the cell weights
+# to indicate which cell belongs on which path.
+nonna.pseudo <- pathStat(tscan.pseudo)
+not.on.path <- is.na(nonna.pseudo)
+nonna.pseudo[not.on.path] <- 0
+cell.weights <- !not.on.path
+storage.mode(cell.weights) <- "numeric"
+
+# Fitting a GAM on the subset of genes for speed.
+library(tradeSeq)
+fit <- fitGAM(counts(sce.nest)[1:100,], 
+    pseudotime=nonna.pseudo,
+    cellWeights=cell.weights)
+
+res <- patternTest(fit)
+res$Symbol <- rowData(sce.nest)[1:100,"SYMBOL"]
+res <- res[order(res$pvalue),]
+head(res, 10)
+```
+
+From a statistical perspective, the GAM is superior to linear models as the former uses the raw counts.
+This accounts for the idiosyncrasies of the mean-variance relationship for low counts and avoids some problems with spurious trajectories introduced by the log-transformation (`r link("normalization-transformation", "OSCA.basic")`).
+However, this sophistication comes at the cost of increased complexity and compute time,
+requiring parallelization via `r Biocpkg("BiocParallel")` even for relatively small datasets.
+
+## Session Info {-}
+
+```{r sessionInfo, echo=FALSE, results='asis'}
+prettySessionInfo()
+```
